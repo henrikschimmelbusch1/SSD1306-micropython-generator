@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSD1306 Simulator & Code Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+        }
+        #ssd1306-canvas {
+            background-color: #000;
+            border: 2px solid #444;
+            image-rendering: pixelated;
+            cursor: default;
+            touch-action: none;
+        }
+        .selected-outline {
+            position: absolute;
+            border: 1px dashed rgba(0, 150, 255, 0.7);
+            pointer-events: none;
+            box-sizing: border-box;
+        }
+        .resize-handle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: rgba(0, 150, 255, 0.7);
+            border: 1px solid white;
+            border-radius: 1px;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        .resize-handle.tl { top: -4px; left: -4px; cursor: nwse-resize; }
+        .resize-handle.tr { top: -4px; right: -4px; cursor: nesw-resize; }
+        .resize-handle.bl { bottom: -4px; left: -4px; cursor: nesw-resize; }
+        .resize-handle.br { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+        .modal {
+            display: none; position: fixed; z-index: 100;
+            left: 0; top: 0; width: 100%; height: 100%;
+            overflow: auto; background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe; margin: 10% auto; padding: 20px; /* Adjusted margin */
+            border: 1px solid #888; width: 80%; max-width: 400px; border-radius: 8px;
+        }
+        .close-button {
+            color: #aaa; float: right; font-size: 28px; font-weight: bold;
+        }
+        .close-button:hover, .close-button:focus {
+            color: black; text-decoration: none; cursor: pointer;
+        }
+        #micropython-code {
+            font-family: monospace; font-size: 0.8rem; white-space: pre;
+            overflow-x: auto; background-color: #2d2d2d; color: #cccccc;
+            border: 1px solid #444; border-radius: 4px; padding: 10px;
+            min-height: 150px; resize: vertical;
+        }
+        .shape-properties { padding-top: 5px; padding-bottom: 5px; }
+        #coords-display {
+            font-family: monospace; font-size: 0.9rem; color: #333;
+            background-color: rgba(255, 255, 255, 0.7); padding: 2px 8px;
+            border-radius: 4px; border: 1px solid #ccc; margin-top: 5px;
+        }
+        #prop-points { font-family: monospace; font-size: 0.8rem; min-height: 60px; }
+        /* Style buttons */
+        button { transition: background-color 0.15s ease-in-out; }
+        /* Animation controls styling */
+        #animation-controls { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 flex flex-col md:flex-row h-screen overflow-hidden">
+
+    <div class="w-full md:w-72 bg-white p-4 space-y-4 overflow-y-auto shadow-lg flex flex-col">
+        <h2 class="text-xl font-semibold text-gray-700">Controls</h2>
+
+        <div class="space-y-2 border-b pb-4 border-gray-200">
+            <h3 class="text-lg font-medium text-gray-600">Add Element</h3>
+            <div class="flex space-x-2">
+                <select id="add-element-type" class="flex-grow border border-gray-300 rounded px-2 py-1 text-sm">
+                    <option value="text">Text</option>
+                    <option value="rectangle">Rectangle</option>
+                    <option value="line">Line</option>
+                    <option value="circle">Circle</option>
+                    <option value="triangle">Triangle</option>
+                    <option value="ellipse">Ellipse</option>
+                    <option value="polygon">Polygon</option>
+                    <option value="round_rect">Round Rectangle</option>
+                    <option value="icon">Icon</option>
+                </select>
+                <button id="add-element-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded text-sm">
+                    Add
+                </button>
+            </div>
+        </div>
+
+         <div id="properties-panel" class="space-y-1 hidden flex-grow">
+             <h3 class="text-lg font-medium text-gray-600 border-b pb-1 mb-2 border-gray-200">Properties</h3>
+
+             <div id="text-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">Text:</label>
+                 <input type="text" data-prop="text" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">X:</label>
+                 <input type="number" data-prop="x" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y:</label>
+                 <input type="number" data-prop="y" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <p class="text-xs text-gray-400 italic">Font size/style differs on hardware.</p>
+                 <label class="text-sm font-medium text-gray-500">Sim Width:</label>
+                 <input type="number" data-prop="width" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Sim Height:</label>
+                 <input type="number" data-prop="height" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+             </div>
+
+             <div id="rectangle-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">X:</label>
+                 <input type="number" data-prop="x" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y:</label>
+                 <input type="number" data-prop="y" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Width:</label>
+                 <input type="number" data-prop="width" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Height:</label>
+                 <input type="number" data-prop="height" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <div class="flex items-center space-x-2">
+                     <input type="checkbox" data-prop="fill" class="prop-input h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                     <label class="text-sm font-medium text-gray-500">Fill</label>
+                 </div>
+             </div>
+
+             <div id="line-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">X1:</label>
+                 <input type="number" data-prop="x" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y1:</label>
+                 <input type="number" data-prop="y" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">X2:</label>
+                 <input type="number" data-prop="x2" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y2:</label>
+                 <input type="number" data-prop="y2" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <p class="text-xs text-gray-400 italic">Thickness ignored in code gen.</p>
+             </div>
+
+             <div id="circle-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">Center X (cx):</label>
+                 <input type="number" data-prop="cx" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Center Y (cy):</label>
+                 <input type="number" data-prop="cy" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Radius (r):</label>
+                 <input type="number" data-prop="r" min="1" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <div class="flex items-center space-x-2">
+                     <input type="checkbox" data-prop="fill" class="prop-input h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                     <label class="text-sm font-medium text-gray-500">Fill</label>
+                 </div>
+             </div>
+
+            <div id="triangle-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">X0:</label>
+                 <input type="number" data-prop="x0" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y0:</label>
+                 <input type="number" data-prop="y0" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">X1:</label>
+                 <input type="number" data-prop="x1" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y1:</label>
+                 <input type="number" data-prop="y1" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">X2:</label>
+                 <input type="number" data-prop="x2" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y2:</label>
+                 <input type="number" data-prop="y2" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <div class="flex items-center space-x-2">
+                     <input type="checkbox" data-prop="fill" class="prop-input h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                     <label class="text-sm font-medium text-gray-500">Fill</label>
+                 </div>
+             </div>
+
+             <div id="ellipse-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">Center X (cx):</label>
+                 <input type="number" data-prop="cx" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Center Y (cy):</label>
+                 <input type="number" data-prop="cy" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Radius X (rx):</label>
+                 <input type="number" data-prop="rx" min="1" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Radius Y (ry):</label>
+                 <input type="number" data-prop="ry" min="1" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <div class="flex items-center space-x-2">
+                     <input type="checkbox" data-prop="fill" class="prop-input h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                     <label class="text-sm font-medium text-gray-500">Fill</label>
+                 </div>
+             </div>
+
+             <div id="polygon-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">Points (x,y),...:</label>
+                 <textarea data-prop="points" rows="3" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full font-mono" placeholder="(10,10), (50,10), (30,50)"></textarea>
+                 <div class="flex items-center space-x-2">
+                     <input type="checkbox" data-prop="fill" class="prop-input h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                     <label class="text-sm font-medium text-gray-500">Fill</label>
+                 </div>
+                 <p class="text-xs text-gray-400 italic">Enter points as (x,y) pairs separated by commas.</p>
+             </div>
+
+             <div id="round_rect-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">X:</label>
+                 <input type="number" data-prop="x" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y:</label>
+                 <input type="number" data-prop="y" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Width:</label>
+                 <input type="number" data-prop="width" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Height:</label>
+                 <input type="number" data-prop="height" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Radius:</label>
+                 <input type="number" data-prop="radius" min="0" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                  <div class="flex items-center space-x-2">
+                     <input type="checkbox" data-prop="fill" class="prop-input h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                     <label class="text-sm font-medium text-gray-500">Fill</label>
+                 </div>
+             </div>
+
+             <div id="icon-properties" class="shape-properties hidden space-y-1">
+                 <label class="text-sm font-medium text-gray-500">Icon Name:</label>
+                 <select data-prop="iconName" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                     </select>
+                 <label class="text-sm font-medium text-gray-500">X:</label>
+                 <input type="number" data-prop="x" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Y:</label>
+                 <input type="number" data-prop="y" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+             </div>
+
+             <div id="animation-properties" class="shape-properties mt-3 pt-3 border-t border-gray-200 space-y-1">
+                 <h4 class="text-md font-medium text-gray-600">Animation (Preview)</h4>
+                 <label class="text-sm font-medium text-gray-500">Target X:</label>
+                 <input type="number" data-prop="animTargetX" placeholder="optional" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Target Y:</label>
+                 <input type="number" data-prop="animTargetY" placeholder="optional" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <label class="text-sm font-medium text-gray-500">Speed (pixels/frame):</label>
+                 <input type="number" data-prop="animSpeed" min="0.1" step="0.1" value="1" class="prop-input border border-gray-300 rounded px-2 py-1 text-sm w-full">
+                 <button id="toggle-animate-btn" data-prop="toggleAnimate" class="prop-input w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-1 px-3 rounded text-sm mt-1">
+                     Start Animation
+                 </button>
+                 <p class="text-xs text-gray-400 italic">Animation is preview only, not in generated code.</p>
+             </div>
+
+
+             <button id="delete-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out mt-4">
+                Delete Element
+            </button>
+        </div>
+
+        <div id="global-animation-controls" class="mt-auto pt-4 border-t border-gray-200 space-y-2">
+             <h3 class="text-lg font-medium text-gray-600">Animation Preview</h3>
+             <div class="flex space-x-2">
+                <button id="play-btn" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-sm">Play</button>
+                <button id="pause-btn" class="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-3 rounded text-sm">Pause</button>
+             </div>
+        </div>
+
+
+        <div class="space-y-2 pt-4 border-t border-gray-200">
+             <h3 class="text-lg font-medium text-gray-600">Code Generation</h3>
+             <button id="generate-code-btn" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-4 rounded">
+                Generate MicroPython Code
+            </button>
+        </div>
+
+    </div>
+
+    <div class="flex-1 flex flex-col items-center justify-start p-4 bg-gray-200 relative overflow-y-auto">
+        <h1 class="text-2xl font-bold text-gray-800 mb-4 flex-shrink-0">SSD1306 Simulator (128x64)</h1>
+        <div id="canvas-container" class="relative border border-gray-400 mb-1 flex-shrink-0" style="width: 512px; height: 256px;">
+             <canvas id="ssd1306-canvas" width="128" height="64"></canvas>
+            <div id="selection-box" class="hidden">
+                <div class="selected-outline"></div>
+                <div class="resize-handle tl"></div>
+                <div class="resize-handle tr"></div>
+                <div class="resize-handle bl"></div>
+                <div class="resize-handle br"></div>
+            </div>
+        </div>
+        <div id="coords-display" class="flex-shrink-0 mb-3">Coords: (-, -)</div>
+
+         <div class="w-full max-w-2xl flex-grow flex flex-col">
+            <label for="micropython-code" class="text-sm font-medium text-gray-600 mb-1">Generated MicroPython Code:</label>
+            <textarea id="micropython-code" readonly class="flex-grow"></textarea>
+         </div>
+    </div>
+
+    <div id="text-modal" class="modal">
+      <div class="modal-content">
+        <span class="close-button" id="close-modal-btn">&times;</span>
+        <h3 class="text-lg font-medium text-gray-600 mb-3">Enter Text</h3>
+        <input type="text" id="modal-text-input" class="border border-gray-300 rounded px-2 py-1 text-sm w-full mb-3" placeholder="Your text here...">
+        <button id="modal-confirm-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
+            Add Text
+        </button>
+      </div>
+    </div>
+
+
+    <script>
+        // --- Constants ---
+        const SCREEN_WIDTH = 128;
+        const SCREEN_HEIGHT = 64;
+        const PIXEL_COLOR = '#FFFFFF';
+        const CANVAS_SCALE_X = 4;
+        const CANVAS_SCALE_Y = 4;
+
+        // --- Preset Icons ---
+        // Data format: 1D array, row by row. 1=on, 0=off.
+        // Width and Height must be multiples of 8 for easy byte conversion later.
+        const presetIcons = {
+            "battery_full": {
+                width: 24, height: 8, data: [
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                ]
+            },
+            "battery_mid": {
+                width: 24, height: 8, data: [
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                ]
+            },
+             "battery_empty": {
+                width: 24, height: 8, data: [
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+                    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,
+                ]
+            },
+            "arrow_up": {
+                width: 8, height: 8, data: [
+                    0,0,0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,1,1,1,1,1,1,0,1,1,0,1,1,0,1,1,
+                    0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,
+                ]
+            },
+             "arrow_down": {
+                width: 8, height: 8, data: [
+                    0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,
+                    1,1,0,1,1,0,1,1,0,1,1,1,1,1,1,0,0,0,1,1,1,1,0,0,0,0,0,1,1,0,0,0,
+                ]
+            },
+             "arrow_left": {
+                width: 8, height: 8, data: [
+                    0,0,0,1,0,0,0,0,0,0,1,1,0,0,0,0,0,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,
+                    0,1,1,1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,
+                ]
+            },
+            "arrow_right": {
+                width: 8, height: 8, data: [
+                    0,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,1,0,1,1,1,1,1,1,1,1,
+                    0,0,0,0,1,1,1,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,
+                ]
+            },
+            "play": {
+                width: 8, height: 8, data: [
+                    0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,1,1,1,0,0,0,
+                    0,1,1,1,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                ]
+            },
+            "pause": {
+                width: 8, height: 8, data: [
+                    0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,
+                    0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,0,1,1,0,
+                ]
+            }
+            // Add more icons here...
+        };
+
+
+        // --- DOM Elements ---
+        // (Get elements as before)
+        const canvas = document.getElementById('ssd1306-canvas');
+        const ctx = canvas.getContext('2d');
+        const canvasContainer = document.getElementById('canvas-container');
+        const addElementTypeSelect = document.getElementById('add-element-type');
+        const addElementBtn = document.getElementById('add-element-btn');
+        const deleteBtn = document.getElementById('delete-btn');
+        const propertiesPanel = document.getElementById('properties-panel');
+        const selectionBox = document.getElementById('selection-box');
+        const selectionOutline = selectionBox.querySelector('.selected-outline');
+        const resizeHandles = selectionBox.querySelectorAll('.resize-handle');
+        const generateCodeBtn = document.getElementById('generate-code-btn');
+        const codeOutputArea = document.getElementById('micropython-code');
+        const coordsDisplay = document.getElementById('coords-display');
+        const playBtn = document.getElementById('play-btn');
+        const pauseBtn = document.getElementById('pause-btn');
+
+
+        // Text Modal Elements
+        const textModal = document.getElementById('text-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const modalTextInput = document.getElementById('modal-text-input');
+        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+
+
+        // --- Application State ---
+        let elements = [];
+        let selectedElement = null;
+        let isDragging = false;
+        let isResizing = false;
+        let dragStartX, dragStartY;
+        let dragOffsetX, dragOffsetY;
+        let resizeHandleType = null;
+        let animationFrameId = null; // ID for requestAnimationFrame
+        let isPlaying = false; // Global animation state
+
+
+        // --- Element Creation ---
+        function createElement(type, options = {}) {
+            const baseElement = {
+                id: Date.now() + Math.random(),
+                type: type,
+                x: options.x ?? 10,
+                y: options.y ?? 10,
+                width: options.width ?? 30,
+                height: options.height ?? 10,
+                color: options.color ?? 1,
+                fill: options.fill ?? false,
+                 // Animation properties
+                isAnimating: false,
+                animTargetX: null,
+                animTargetY: null,
+                animSpeed: options.animSpeed ?? 1,
+                // Draw function
+                draw: function(context) { /* ... default placeholder ... */ }
+            };
+
+            // --- Specific Element Types ---
+            switch(type) {
+                case 'text':
+                    return {
+                        ...baseElement,
+                        text: options.text || 'Text',
+                        width: options.width || (options.text ? options.text.length * 5 : 30),
+                        height: options.height || 8,
+                        draw: function(ctx) { /* ... (same as before) ... */
+                            const drawX = this.x ?? baseElement.x;
+                            const drawY = this.y ?? baseElement.y;
+                            const drawText = this.text ?? 'Text';
+                            ctx.fillStyle = PIXEL_COLOR;
+                            ctx.font = `8px sans-serif`;
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'top';
+                            ctx.fillText(drawText, drawX, drawY);
+                        }
+                    };
+                case 'rectangle':
+                     return { /* ... (same as before, including fill) ... */
+                         ...baseElement,
+                        fill: options.fill ?? false,
+                        draw: function(ctx) {
+                            const drawX = this.x ?? baseElement.x;
+                            const drawY = this.y ?? baseElement.y;
+                            const drawW = this.width ?? baseElement.width;
+                            const drawH = this.height ?? baseElement.height;
+                            if (this.fill) {
+                                ctx.fillStyle = PIXEL_COLOR;
+                                ctx.fillRect(drawX, drawY, drawW, drawH);
+                            } else {
+                                ctx.strokeStyle = PIXEL_COLOR;
+                                ctx.lineWidth = 1;
+                                ctx.strokeRect(drawX, drawY, drawW, drawH);
+                            }
+                        }
+                    };
+                case 'line': { /* ... (same as before) ... */
+                    const x1_l = options.x ?? 5;
+                    const y1_l = options.y ?? 5;
+                    const x2_l = options.x2 ?? (x1_l + 30);
+                    const y2_l = options.y2 ?? (y1_l + 10);
+                    return {
+                        ...baseElement,
+                        x: x1_l, y: y1_l, x2: x2_l, y2: y2_l,
+                        width: Math.abs(x2_l - x1_l), height: Math.abs(y2_l - y1_l),
+                        draw: function(ctx) {
+                            ctx.strokeStyle = PIXEL_COLOR; ctx.lineWidth = 1;
+                            ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.x2, this.y2); ctx.stroke();
+                        }
+                    };
+                }
+                 case 'circle': { /* ... (same as before) ... */
+                     const cx_c = options.cx ?? 30;
+                     const cy_c = options.cy ?? 30;
+                     const r_c = options.r ?? 15;
+                    return {
+                        ...baseElement,
+                        cx: cx_c, cy: cy_c, r: r_c, fill: options.fill ?? false,
+                        x: cx_c - r_c, y: cy_c - r_c, width: r_c * 2, height: r_c * 2,
+                        draw: function(ctx) {
+                            ctx.beginPath(); ctx.arc(this.cx, this.cy, this.r, 0, Math.PI * 2);
+                            if (this.fill) { ctx.fillStyle = PIXEL_COLOR; ctx.fill(); }
+                            else { ctx.strokeStyle = PIXEL_COLOR; ctx.lineWidth = 1; ctx.stroke(); }
+                        }
+                    };
+                 }
+                case 'triangle': { /* ... (same as before) ... */
+                     const x0_t = options.x0 ?? 10; const y0_t = options.y0 ?? 50;
+                     const x1_t = options.x1 ?? 60; const y1_t = options.y1 ?? 50;
+                     const x2_t = options.x2 ?? 35; const y2_t = options.y2 ?? 10;
+                     const { minX: minXt, minY: minYt, maxX: maxXt, maxY: maxYt } = calculateBoundingBox([[x0_t,y0_t],[x1_t,y1_t],[x2_t,y2_t]]);
+                    return {
+                        ...baseElement,
+                        x0: x0_t, y0: y0_t, x1: x1_t, y1: y1_t, x2: x2_t, y2: y2_t,
+                        fill: options.fill ?? false,
+                        x: minXt, y: minYt, width: maxXt - minXt, height: maxYt - minYt,
+                        draw: function(ctx) {
+                            ctx.beginPath(); ctx.moveTo(this.x0, this.y0); ctx.lineTo(this.x1, this.y1); ctx.lineTo(this.x2, this.y2); ctx.closePath();
+                            if (this.fill) { ctx.fillStyle = PIXEL_COLOR; ctx.fill(); }
+                            else { ctx.strokeStyle = PIXEL_COLOR; ctx.lineWidth = 1; ctx.stroke(); }
+                        }
+                    };
+                 }
+                case 'ellipse': { /* ... (same as before) ... */
+                    const cx_e = options.cx ?? 64; const cy_e = options.cy ?? 32;
+                    const rx_e = options.rx ?? 30; const ry_e = options.ry ?? 15;
+                    return {
+                        ...baseElement,
+                        cx: cx_e, cy: cy_e, rx: rx_e, ry: ry_e, fill: options.fill ?? false,
+                        x: cx_e - rx_e, y: cy_e - ry_e, width: rx_e * 2, height: ry_e * 2,
+                        draw: function(ctx) {
+                            ctx.beginPath(); ctx.ellipse(this.cx, this.cy, this.rx, this.ry, 0, 0, Math.PI * 2);
+                            if (this.fill) { ctx.fillStyle = PIXEL_COLOR; ctx.fill(); }
+                            else { ctx.strokeStyle = PIXEL_COLOR; ctx.lineWidth = 1; ctx.stroke(); }
+                        }
+                    };
+                 }
+                 case 'polygon': { /* ... (same as before) ... */
+                    const defaultPoints = options.points ?? [[10,30], [30,10], [50,30], [50,50], [10,50]];
+                    const { minX, minY, maxX, maxY } = calculateBoundingBox(defaultPoints);
+                    return {
+                        ...baseElement,
+                        points: defaultPoints, fill: options.fill ?? false,
+                        x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+                        draw: function(ctx) {
+                            if (!this.points || this.points.length < 2) return;
+                            ctx.beginPath(); ctx.moveTo(this.points[0][0], this.points[0][1]);
+                            for (let i = 1; i < this.points.length; i++) { ctx.lineTo(this.points[i][0], this.points[i][1]); }
+                            ctx.closePath();
+                            if (this.fill) { ctx.fillStyle = PIXEL_COLOR; ctx.fill(); }
+                            else { ctx.strokeStyle = PIXEL_COLOR; ctx.lineWidth = 1; ctx.stroke(); }
+                        }
+                    };
+                 }
+                case 'round_rect': { /* ... (same as before) ... */
+                     return {
+                        ...baseElement,
+                        radius: options.radius ?? 5, fill: options.fill ?? false,
+                        draw: function(ctx) {
+                            const drawX = this.x ?? baseElement.x; const drawY = this.y ?? baseElement.y;
+                            const drawW = this.width ?? baseElement.width; const drawH = this.height ?? baseElement.height;
+                             if (this.fill) { ctx.fillStyle = PIXEL_COLOR; ctx.fillRect(drawX, drawY, drawW, drawH); }
+                             else { ctx.strokeStyle = PIXEL_COLOR; ctx.lineWidth = 1; ctx.strokeRect(drawX, drawY, drawW, drawH); }
+                            ctx.fillStyle = 'rgba(150, 150, 150, 0.8)'; ctx.font = '6px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                            ctx.fillText(`RR (r=${this.radius})`, drawX + drawW / 2, drawY + drawH / 2);
+                        }
+                     };
+                 }
+                case 'icon':
+                    const iconName = options.iconName || Object.keys(presetIcons)[0]; // Default to first icon
+                    const iconData = presetIcons[iconName];
+                    if (!iconData) {
+                        console.error(`Icon not found: ${iconName}`);
+                        return { ...baseElement, type: 'unknown' };
+                    }
+                    return {
+                        ...baseElement,
+                        iconName: iconName,
+                        width: iconData.width,
+                        height: iconData.height,
+                        // x, y are top-left corner
+                        draw: function(ctx) {
+                            const icon = presetIcons[this.iconName];
+                            if (!icon) return;
+                            ctx.fillStyle = PIXEL_COLOR;
+                            for (let r = 0; r < icon.height; r++) {
+                                for (let c = 0; c < icon.width; c++) {
+                                    const index = r * icon.width + c;
+                                    if (icon.data[index] === 1) {
+                                        // Draw pixel - ensure coordinates are integers
+                                        ctx.fillRect(Math.round(this.x + c), Math.round(this.y + r), 1, 1);
+                                    }
+                                }
+                            }
+                        }
+                    };
+
+                default:
+                    console.warn("Unknown element type requested:", type);
+                    return { ...baseElement, type: 'unknown' };
+            }
+        }
+
+        // --- Helper Functions ---
+        function calculateBoundingBox(points) { /* ... (same as before) ... */
+            if (!points || points.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+            let minX = points[0][0], minY = points[0][1];
+            let maxX = points[0][0], maxY = points[0][1];
+            for (let i = 1; i < points.length; i++) {
+                minX = Math.min(minX, points[i][0]); minY = Math.min(minY, points[i][1]);
+                maxX = Math.max(maxX, points[i][0]); maxY = Math.max(maxY, points[i][1]);
+            }
+            return { minX, minY, maxX, maxY };
+         }
+        function parsePointsString(pointsStr) { /* ... (same as before) ... */
+            if (!pointsStr || typeof pointsStr !== 'string') return [];
+            const points = [];
+            const pairs = pointsStr.match(/\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/g); // Allow negative coords
+            if (pairs) {
+                pairs.forEach(pair => {
+                    const coords = pair.match(/-?\d+/g); // Allow negative coords
+                    if (coords && coords.length === 2) {
+                        points.push([parseInt(coords[0], 10), parseInt(coords[1], 10)]);
+                    }
+                });
+            }
+            return points;
+        }
+        function formatPointsString(pointsArr) { /* ... (same as before) ... */
+            if (!pointsArr) return "";
+            return pointsArr.map(p => `(${p[0]},${p[1]})`).join(', ');
+         }
+        // Helper to populate icon dropdown
+        function populateIconSelector(selectElement) {
+            selectElement.innerHTML = ''; // Clear existing options
+            for (const iconName in presetIcons) {
+                const option = document.createElement('option');
+                option.value = iconName;
+                option.textContent = iconName.replace(/_/g, ' '); // Make names more readable
+                selectElement.appendChild(option);
+            }
+        }
+
+
+        // --- Drawing Functions ---
+        function clearCanvas() { /* ... (same as before) ... */
+             ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        }
+        function redrawCanvas() { /* ... (same as before, calls updateSelectionBox) ... */
+             clearCanvas();
+            elements.forEach(element => {
+                if (element && typeof element.draw === 'function') {
+                    ctx.save();
+                    element.draw(ctx);
+                    ctx.restore();
+                } else {
+                    console.error("Invalid element found:", element);
+                }
+            });
+             updateSelectionBox();
+        }
+
+        // --- Selection & Manipulation ---
+        function getElementAtPosition(canvasX, canvasY) { /* ... (same as before) ... */
+             for (let i = elements.length - 1; i >= 0; i--) {
+                const el = elements[i];
+                if (!el) continue;
+                const buffer = 3;
+                const x1 = el.x - buffer; const y1 = el.y - buffer;
+                const x2 = el.x + el.width + buffer; const y2 = el.y + el.height + buffer;
+                if (canvasX >= x1 && canvasX <= x2 && canvasY >= y1 && canvasY <= y2) { return el; }
+            }
+            return null;
+        }
+        function updateSelectionBox() { /* ... (same as before, handles resize handle visibility) ... */
+            if (selectedElement) {
+                selectionBox.style.display = 'block';
+                const scaledX = selectedElement.x * CANVAS_SCALE_X;
+                const scaledY = selectedElement.y * CANVAS_SCALE_Y;
+                const scaledWidth = selectedElement.width * CANVAS_SCALE_X;
+                const scaledHeight = selectedElement.height * CANVAS_SCALE_Y;
+                selectionOutline.style.left = `${scaledX}px`; selectionOutline.style.top = `${scaledY}px`;
+                selectionOutline.style.width = `${scaledWidth}px`; selectionOutline.style.height = `${scaledHeight}px`;
+                const showHandles = ['rectangle', 'text', 'round_rect'].includes(selectedElement.type);
+                resizeHandles.forEach(h => h.style.display = showHandles ? 'block' : 'none');
+            } else {
+                selectionBox.style.display = 'none';
+            }
+        }
+        function updatePropertiesPanel() { /* ... (same as before, populates dynamic sections) ... */
+             if (!selectedElement) {
+                propertiesPanel.classList.add('hidden');
+                return;
+            }
+            propertiesPanel.classList.remove('hidden');
+            document.querySelectorAll('.shape-properties').forEach(el => el.classList.add('hidden')); // Hide all first
+
+            const sectionId = `${selectedElement.type}-properties`;
+            const section = document.getElementById(sectionId);
+            const animationSection = document.getElementById('animation-properties'); // Always try to show animation
+
+            if (section) {
+                section.classList.remove('hidden');
+                section.querySelectorAll('.prop-input').forEach(input => {
+                    const propName = input.dataset.prop;
+                    if (propName && selectedElement.hasOwnProperty(propName)) {
+                        if (input.tagName === 'SELECT' && propName === 'iconName') {
+                            populateIconSelector(input); // Ensure dropdown is populated
+                            input.value = selectedElement[propName];
+                        } else if (input.type === 'checkbox') {
+                            input.checked = selectedElement[propName];
+                        } else if (propName === 'points') {
+                            input.value = formatPointsString(selectedElement[propName]);
+                        } else {
+                            input.value = selectedElement[propName];
+                        }
+                    }
+                });
+            } else if (selectedElement.type !== 'unknown') { // Don't warn for unknown type
+                console.warn(`Properties section not found for type: ${selectedElement.type}`);
+            }
+
+            // Handle Animation Section Separately (Show for most types)
+            if (animationSection && selectedElement.type !== 'unknown') {
+                 animationSection.classList.remove('hidden');
+                 animationSection.querySelectorAll('.prop-input').forEach(input => {
+                     const propName = input.dataset.prop;
+                     if (propName === 'toggleAnimate') { // Handle button text
+                        input.textContent = selectedElement.isAnimating ? 'Stop Animation' : 'Start Animation';
+                     } else if (propName && selectedElement.hasOwnProperty(propName)) {
+                         // Handle null values for target coordinates
+                         input.value = selectedElement[propName] === null ? '' : selectedElement[propName];
+                     }
+                 });
+            } else if (animationSection) {
+                 animationSection.classList.add('hidden'); // Hide for unknown type
+            }
+        }
+        function selectElement(element) { /* ... (same as before) ... */
+            selectedElement = element;
+            updateSelectionBox();
+            updatePropertiesPanel();
+        }
+        function deselectElement() { /* ... (same as before) ... */
+            selectedElement = null;
+            updateSelectionBox();
+            updatePropertiesPanel();
+        }
+        function deleteSelectedElement() { /* ... (same as before) ... */
+            if (selectedElement) {
+                // Stop animation if this element is deleted
+                if(selectedElement.isAnimating) {
+                    stopAnimation(selectedElement);
+                }
+                elements = elements.filter(el => el.id !== selectedElement.id);
+                deselectElement();
+                redrawCanvas();
+                generateMicroPythonCode();
+            }
+        }
+        function updateElementBounds(element) { /* ... (same as before, includes icon) ... */
+             if (!element) return;
+             switch(element.type) {
+                case 'circle': element.x = element.cx - element.r; element.y = element.cy - element.r; element.width = element.r * 2; element.height = element.r * 2; break;
+                case 'ellipse': element.x = element.cx - element.rx; element.y = element.cy - element.ry; element.width = element.rx * 2; element.height = element.ry * 2; break;
+                case 'triangle': const { minX: tMinX, minY: tMinY, maxX: tMaxX, maxY: tMaxY } = calculateBoundingBox([[element.x0,element.y0],[element.x1,element.y1],[element.x2,element.y2]]); element.x=tMinX; element.y=tMinY; element.width=tMaxX-tMinX; element.height=tMaxY-tMinY; break;
+                case 'polygon': const { minX: pMinX, minY: pMinY, maxX: pMaxX, maxY: pMaxY } = calculateBoundingBox(element.points); element.x=pMinX; element.y=pMinY; element.width=pMaxX-pMinX; element.height=pMaxY-pMinY; break;
+                case 'line': element.x = Math.min(element.x, element.x2); element.y = Math.min(element.y, element.y2); element.width = Math.abs(element.x2 - element.x); element.height = Math.abs(element.y2 - element.y); break;
+                case 'icon': // Width/height are fixed based on iconName
+                    const iconData = presetIcons[element.iconName];
+                    if (iconData) { element.width = iconData.width; element.height = iconData.height; }
+                    break;
+             }
+        }
+
+
+        // --- Event Handlers ---
+        function getCanvasCoordinates(event) { /* ... (same as before) ... */
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            if (event.touches && event.touches.length > 0) { clientX = event.touches[0].clientX; clientY = event.touches[0].clientY; }
+            else if (event.changedTouches && event.changedTouches.length > 0) { clientX = event.changedTouches[0].clientX; clientY = event.changedTouches[0].clientY; }
+            else { clientX = event.clientX; clientY = event.clientY; }
+            const containerX = clientX - rect.left; const containerY = clientY - rect.top;
+            const canvasX = Math.floor(containerX / CANVAS_SCALE_X); const canvasY = Math.floor(containerY / CANVAS_SCALE_Y);
+            const clampedX = Math.max(0, Math.min(SCREEN_WIDTH - 1, canvasX)); const clampedY = Math.max(0, Math.min(SCREEN_HEIGHT - 1, canvasY));
+            return { x: clampedX, y: clampedY };
+         }
+        canvasContainer.addEventListener('mousemove', (event) => { /* ... (coord display update) ... */
+            const { x, y } = getCanvasCoordinates(event);
+            coordsDisplay.textContent = `Coords: (${x}, ${y})`;
+         });
+        canvasContainer.addEventListener('mouseleave', () => { /* ... (coord display clear) ... */
+             coordsDisplay.textContent = 'Coords: (-, -)';
+             if (isDragging || isResizing) { handleMouseUp({}); } // Treat leave as mouseup if dragging/resizing
+         });
+        function handleMouseDown(event) { /* ... (same as before) ... */
+            event.preventDefault();
+            const { x, y } = getCanvasCoordinates(event);
+            const canResize = selectedElement && ['rectangle', 'text', 'round_rect'].includes(selectedElement.type);
+            if (canResize && event.target.classList.contains('resize-handle')) {
+                 isResizing = true; isDragging = false;
+                 resizeHandleType = event.target.classList.contains('tl') ? 'tl' : event.target.classList.contains('tr') ? 'tr' : event.target.classList.contains('bl') ? 'bl' : 'br';
+                 dragStartX = x; dragStartY = y;
+                 selectedElement.originalRect = { x: selectedElement.x, y: selectedElement.y, width: selectedElement.width, height: selectedElement.height };
+                 canvasContainer.style.cursor = event.target.style.cursor; return;
+            }
+            const clickedElement = getElementAtPosition(x, y);
+            if (clickedElement) {
+                selectElement(clickedElement); isDragging = true;
+                dragStartX = x; dragStartY = y;
+                selectedElement.dragInitialState = { ...selectedElement }; // Deep copy might be needed for points
+                if(selectedElement.type === 'polygon') selectedElement.dragInitialState.points = selectedElement.points.map(p => [...p]); // Deep copy points
+                canvasContainer.style.cursor = 'move';
+            } else {
+                deselectElement(); isDragging = false; canvasContainer.style.cursor = 'default';
+            }
+            isResizing = false;
+         }
+        function handleMouseMove(event) { /* ... (same as before, handles drag for all types) ... */
+            if (!isDragging && !isResizing) return;
+            event.preventDefault();
+            const { x, y } = getCanvasCoordinates(event);
+            const dx = x - dragStartX; const dy = y - dragStartY;
+
+            if (isDragging && selectedElement) {
+                 const initialState = selectedElement.dragInitialState;
+                 if (!initialState) return; // Safety check
+
+                 switch (selectedElement.type) {
+                    case 'rectangle': case 'text': case 'round_rect': case 'icon':
+                        selectedElement.x = initialState.x + dx; selectedElement.y = initialState.y + dy; break;
+                    case 'circle': case 'ellipse':
+                        selectedElement.cx = initialState.cx + dx; selectedElement.cy = initialState.cy + dy; break;
+                    case 'line':
+                        selectedElement.x = initialState.x + dx; selectedElement.y = initialState.y + dy;
+                        selectedElement.x2 = initialState.x2 + dx; selectedElement.y2 = initialState.y2 + dy; break;
+                    case 'triangle':
+                        selectedElement.x0 = initialState.x0 + dx; selectedElement.y0 = initialState.y0 + dy;
+                        selectedElement.x1 = initialState.x1 + dx; selectedElement.y1 = initialState.y1 + dy;
+                        selectedElement.x2 = initialState.x2 + dx; selectedElement.y2 = initialState.y2 + dy; break;
+                    case 'polygon':
+                        if (initialState.points) { selectedElement.points = initialState.points.map(p => [p[0] + dx, p[1] + dy]); } break;
+                 }
+                 updateElementBounds(selectedElement); updatePropertiesPanel(); updateSelectionBox(); redrawCanvas();
+            } else if (isResizing && selectedElement) { /* ... (resize logic - same as before) ... */
+                 const orig = selectedElement.originalRect; if (!orig) return;
+                 let newX = orig.x; let newY = orig.y; let newWidth = orig.width; let newHeight = orig.height;
+                 switch (resizeHandleType) {
+                     case 'br': newWidth = orig.width + dx; newHeight = orig.height + dy; break;
+                     case 'bl': newX = orig.x + dx; newWidth = orig.width - dx; newHeight = orig.height + dy; break;
+                     case 'tr': newY = orig.y + dy; newWidth = orig.width + dx; newHeight = orig.height - dy; break;
+                     case 'tl': newX = orig.x + dx; newY = orig.y + dy; newWidth = orig.width - dx; newHeight = orig.height - dy; break;
+                 }
+                 if (newWidth >= 1 && newHeight >= 1) {
+                     selectedElement.x = Math.round(newX); selectedElement.y = Math.round(newY);
+                     selectedElement.width = Math.round(newWidth); selectedElement.height = Math.round(newHeight);
+                     updatePropertiesPanel(); updateSelectionBox(); redrawCanvas();
+                 }
+            }
+        }
+        function handleMouseUp(event) { /* ... (same as before) ... */
+             if (isDragging || isResizing) { event.preventDefault?.(); } // Use optional chaining for safety
+            if (isResizing && selectedElement) delete selectedElement.originalRect;
+            if (isDragging && selectedElement) delete selectedElement.dragInitialState;
+            isDragging = false; isResizing = false; resizeHandleType = null;
+            canvasContainer.style.cursor = selectedElement ? 'move' : 'default';
+            if (selectedElement) generateMicroPythonCode();
+        }
+
+        // --- Property Panel Updates ---
+        function handlePropertyChange(event) { /* ... (includes iconName, animation props) ... */
+             if (!selectedElement) return;
+            const input = event.target;
+            const propName = input.dataset.prop;
+            if (!propName) return;
+
+            // Special handling for toggle button
+            if (propName === 'toggleAnimate') {
+                toggleAnimation(selectedElement);
+                updatePropertiesPanel(); // Update button text
+                return;
+            }
+
+            let value;
+            if (input.type === 'checkbox') { value = input.checked; }
+            else if (input.type === 'number') {
+                value = input.value === '' ? null : parseInt(input.value, 10); // Allow clearing target coords
+                if (value !== null && isNaN(value)) { value = 0; } // Default to 0 if invalid number entered
+                // Min constraints
+                if ((propName === 'r' || propName === 'rx' || propName === 'ry') && value !== null && value < 1) value = 1;
+                if (propName === 'radius' && value !== null && value < 0) value = 0;
+                if ((propName === 'width' || propName === 'height') && value !== null && value < 1 && ['rectangle', 'text', 'round_rect'].includes(selectedElement.type)) value = 1;
+                if (propName === 'animSpeed' && value !== null && value < 0.1) value = 0.1;
+            } else if (propName === 'points') {
+                 value = parsePointsString(input.value);
+                 if (!Array.isArray(value)) { input.value = formatPointsString(selectedElement[propName]); return; }
+            } else if (propName === 'iconName') {
+                 value = input.value; // Get selected icon name
+                 // Update width/height based on new icon
+                 const iconData = presetIcons[value];
+                 if(iconData) {
+                     selectedElement.width = iconData.width;
+                     selectedElement.height = iconData.height;
+                 }
+            } else { value = input.value; } // Text input
+
+            if (selectedElement.hasOwnProperty(propName)) { selectedElement[propName] = value; }
+            else { console.warn(`Property ${propName} not found on selected element type ${selectedElement.type}.`); return; }
+
+            updateElementBounds(selectedElement);
+            redrawCanvas();
+            generateMicroPythonCode();
+        }
+
+        // --- Button Click Handlers ---
+        addElementBtn.addEventListener('click', () => { /* ... (handles icon type) ... */
+            const type = addElementTypeSelect.value;
+            if (type === 'text') {
+                modalTextInput.value = 'Text'; textModal.style.display = 'block'; modalTextInput.focus(); modalTextInput.select();
+            } else {
+                const newElement = createElement(type); // Creates with defaults (incl. default icon if type='icon')
+                if (newElement) {
+                    elements.push(newElement); selectElement(newElement); redrawCanvas(); generateMicroPythonCode();
+                }
+            }
+        });
+        modalConfirmBtn.addEventListener('click', () => { /* ... (same as before) ... */
+            const text = modalTextInput.value || 'Text';
+            const newTextElement = createElement('text', { text: text });
+            if (newTextElement) { elements.push(newTextElement); selectElement(newTextElement); redrawCanvas(); generateMicroPythonCode(); }
+            textModal.style.display = 'none';
+        });
+        closeModalBtn.addEventListener('click', () => { textModal.style.display = 'none'; });
+        window.addEventListener('click', (event) => { if (event.target == textModal) { textModal.style.display = 'none'; } });
+        deleteBtn.addEventListener('click', deleteSelectedElement);
+
+        // --- Animation Control ---
+        function startAnimation(element) {
+            if (!element) return;
+            // Only start if target is set
+            if (element.animTargetX !== null || element.animTargetY !== null) {
+                element.isAnimating = true;
+                if (!isPlaying) { // Start global loop if not already running
+                    playAnimationLoop();
+                }
+            } else {
+                 console.warn("Animation target not set for element:", element.id);
+            }
+        }
+
+        function stopAnimation(element) {
+            if (!element) return;
+            element.isAnimating = false;
+            // Check if any other elements are animating before stopping global loop
+             if (!elements.some(el => el.isAnimating)) {
+                 pauseAnimationLoop(); // Stop global loop if nothing else is animating
+             }
+        }
+
+        function toggleAnimation(element) {
+            if (!element) return;
+            if (element.isAnimating) {
+                stopAnimation(element);
+            } else {
+                startAnimation(element);
+            }
+        }
+
+        function playAnimationLoop() {
+            if (isPlaying) return; // Already playing
+            isPlaying = true;
+            playBtn.classList.add('bg-gray-400', 'hover:bg-gray-400'); // Indicate active state
+            playBtn.disabled = true;
+            pauseBtn.classList.remove('bg-gray-400', 'hover:bg-gray-400');
+            pauseBtn.disabled = false;
+            function loop() {
+                if (!isPlaying) return; // Stop if paused
+                animateStep();
+                animationFrameId = requestAnimationFrame(loop);
+            }
+            loop();
+        }
+
+        function pauseAnimationLoop() {
+            isPlaying = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+             playBtn.classList.remove('bg-gray-400', 'hover:bg-gray-400');
+             playBtn.disabled = false;
+             pauseBtn.classList.add('bg-gray-400', 'hover:bg-gray-400');
+             pauseBtn.disabled = true;
+             // Also update individual element animation buttons if needed
+             updatePropertiesPanel();
+        }
+
+        function animateStep() {
+            let needsRedraw = false;
+            elements.forEach(el => {
+                if (el.isAnimating) {
+                    let moved = false;
+                    const targetX = el.animTargetX !== null ? el.animTargetX : el.x; // Use current if target is null
+                    const targetY = el.animTargetY !== null ? el.animTargetY : el.y;
+                    const speed = el.animSpeed || 1;
+
+                    const dx = targetX - el.x;
+                    const dy = targetY - el.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance > speed) {
+                        // Move towards target
+                        const moveX = (dx / distance) * speed;
+                        const moveY = (dy / distance) * speed;
+                        el.x += moveX;
+                        el.y += moveY;
+                        // Update related coords (center for circle/ellipse, points for others)
+                        updateElementCoordsFromPos(el, moveX, moveY);
+                        moved = true;
+                    } else if (distance > 0) {
+                        // Snap to target if close enough
+                        const moveX = dx;
+                        const moveY = dy;
+                        el.x = targetX;
+                        el.y = targetY;
+                         updateElementCoordsFromPos(el, moveX, moveY);
+                        el.isAnimating = false; // Stop animation
+                        moved = true;
+                         // Update button text in properties panel if this element is selected
+                         if (el === selectedElement) {
+                             updatePropertiesPanel();
+                         }
+                    } else {
+                         // Already at target
+                         el.isAnimating = false;
+                          if (el === selectedElement) {
+                             updatePropertiesPanel();
+                         }
+                    }
+
+                    if (moved) {
+                        updateElementBounds(el);
+                        needsRedraw = true;
+                    }
+                }
+            });
+
+            if (needsRedraw) {
+                redrawCanvas();
+            }
+
+             // Stop global loop if no elements are animating anymore
+             if (isPlaying && !elements.some(el => el.isAnimating)) {
+                 pauseAnimationLoop();
+             }
+        }
+
+        // Helper to update internal coordinates when x/y changes (during animation/drag)
+        function updateElementCoordsFromPos(element, dx, dy) {
+             switch (element.type) {
+                    case 'circle': case 'ellipse':
+                        element.cx += dx; element.cy += dy; break;
+                    case 'line':
+                        element.x2 += dx; element.y2 += dy; break; // x,y already updated
+                    case 'triangle':
+                        element.x0 += dx; element.y0 += dy;
+                        element.x1 += dx; element.y1 += dy;
+                        element.x2 += dx; element.y2 += dy; break;
+                    case 'polygon':
+                        if (element.points) { element.points = element.points.map(p => [p[0] + dx, p[1] + dy]); } break;
+             }
+        }
+
+
+        playBtn.addEventListener('click', playAnimationLoop);
+        pauseBtn.addEventListener('click', pauseAnimationLoop);
+
+
+        // --- Code Generation ---
+        function generateMicroPythonCode() { /* ... (includes icon generation) ... */
+             let iconDefs = '';
+             let iconVars = new Set(); // Track defined icon variables
+
+             let drawingCommands = '';
+             elements.forEach(el => {
+                if (!el) return;
+                const color = el.color ?? 1;
+                const fill = el.fill ?? false;
+
+                try {
+                    switch (el.type) {
+                        case 'rectangle': drawingCommands += fill ? `display.fill_rect(${Math.round(el.x)}, ${Math.round(el.y)}, ${Math.round(el.width)}, ${Math.round(el.height)}, ${color})\n` : `display.rect(${Math.round(el.x)}, ${Math.round(el.y)}, ${Math.round(el.width)}, ${Math.round(el.height)}, ${color})\n`; break;
+                        case 'line': drawingCommands += `display.line(${Math.round(el.x)}, ${Math.round(el.y)}, ${Math.round(el.x2)}, ${Math.round(el.y2)}, ${color})\n`; break;
+                        case 'text': const escapedText = (el.text || '').replace(/"/g, '\\"'); drawingCommands += `display.text("${escapedText}", ${Math.round(el.x)}, ${Math.round(el.y)}, ${color})\n`; break;
+                        case 'circle': drawingCommands += `display.circle(${Math.round(el.cx)}, ${Math.round(el.cy)}, ${Math.round(el.r)}, ${color}, fill=${fill})\n`; break;
+                        case 'triangle': drawingCommands += `display.triangle(${Math.round(el.x0)}, ${Math.round(el.y0)}, ${Math.round(el.x1)}, ${Math.round(el.y1)}, ${Math.round(el.x2)}, ${Math.round(el.y2)}, ${color}, fill=${fill})\n`; break;
+                        case 'ellipse': drawingCommands += `display.ellipse(${Math.round(el.cx)}, ${Math.round(el.cy)}, ${Math.round(el.rx)}, ${Math.round(el.ry)}, ${color}, fill=${fill})\n`; break;
+                        case 'polygon': const pointsListStr = el.points.map(p => `(${Math.round(p[0])},${Math.round(p[1])})`).join(', '); drawingCommands += `display.polygon([${pointsListStr}], ${color}, fill=${fill})\n`; break;
+                        case 'round_rect': drawingCommands += `display.round_rect(${Math.round(el.x)}, ${Math.round(el.y)}, ${Math.round(el.width)}, ${Math.round(el.height)}, ${color}, filled=${fill}, radius=${Math.round(el.radius)})\n`; break;
+                        case 'icon':
+                            const icon = presetIcons[el.iconName];
+                            if (icon) {
+                                const varName = `icon_${el.iconName}`;
+                                if (!iconVars.has(varName)) {
+                                    // Generate bytearray definition (assuming MONO_VLSB)
+                                    let byteString = 'bytearray(b\'';
+                                    let byteValue = 0;
+                                    let bitCount = 0;
+                                    for (let i = 0; i < icon.data.length; i++) {
+                                        byteValue |= (icon.data[i] & 1) << bitCount;
+                                        bitCount++;
+                                        if (bitCount === 8) {
+                                            byteString += `\\x${byteValue.toString(16).padStart(2, '0')}`;
+                                            byteValue = 0;
+                                            bitCount = 0;
+                                        }
+                                    }
+                                     if (bitCount > 0) { // Add last byte if not full
+                                         byteString += `\\x${byteValue.toString(16).padStart(2, '0')}`;
+                                     }
+                                    byteString += '\')';
+
+                                    iconDefs += `\n# Icon: ${el.iconName}\n`;
+                                    iconDefs += `${varName}_data = ${byteString}\n`;
+                                    iconDefs += `${varName}_fb = framebuf.FrameBuffer(${varName}_data, ${icon.width}, ${icon.height}, framebuf.MONO_VLSB)\n`;
+                                    iconVars.add(varName);
+                                }
+                                drawingCommands += `display.blit(${varName}_fb, ${Math.round(el.x)}, ${Math.round(el.y)})\n`;
+                            } else {
+                                drawingCommands += `# ERROR: Icon data not found for '${el.iconName}'\n`;
+                            }
+                            break;
+                        default: drawingCommands += `# Skipping unsupported element type: ${el.type}\n`;
+                    }
+                } catch (error) {
+                     drawingCommands += `# ERROR generating code for element ID ${el.id}: ${error.message}\n`;
+                     console.error("Error generating code for element:", el, error);
+                }
+            });
+
+
+             // Assemble final code
+             let code = `# MicroPython Code for SSD1306 Display (Raspberry Pi Pico)
+# Generated by SSD1306 Simulator
+# IMPORTANT: ... (setup instructions) ...
+
+import machine
+import time
+import ssd1306
+import framebuf # Needed for icons
+
+# --- Display Setup (CHOOSE ONE: I2C or SPI) ---
+# ... (I2C/SPI setup code remains the same) ...
+# == I2C Setup ==
+# i2c = machine.I2C(0, sda=machine.Pin(8), scl=machine.Pin(9), freq=400000)
+# display_width = 128; display_height = 64
+# display = ssd1306.SSD1306_I2C(display_width, display_height, i2c)
+
+# == SPI Setup ==
+spi = machine.SPI(0, baudrate=10000000, sck=machine.Pin(18), mosi=machine.Pin(19)) # Example
+dc_pin = machine.Pin(16); res_pin = machine.Pin(17); cs_pin = machine.Pin(20) # Example
+display_width = 128; display_height = 64
+display = ssd1306.SSD1306_SPI(display_width, display_height, spi, dc_pin, res_pin, cs_pin)
+
+# --- Icon Definitions (if any) ---
+${iconDefs}
+# --- Drawing Commands ---
+display.fill(0) # Clear display
+${drawingCommands}
+# Update the display
+display.show()
+
+print("Display updated.")
+`;
+            codeOutputArea.value = code;
+        }
+
+        // Attach property change listeners (delegated to panel)
+        propertiesPanel.addEventListener('change', handlePropertyChange);
+        propertiesPanel.addEventListener('input', (event) => {
+             if (event.target.classList.contains('prop-input') && (event.target.type === 'number' || event.target.type === 'text' || event.target.type === 'textarea')) {
+                 handlePropertyChange(event);
+             }
+        });
+
+
+        // --- Initialization ---
+        function initialize() {
+            canvasContainer.style.width = `${SCREEN_WIDTH * CANVAS_SCALE_X}px`;
+            canvasContainer.style.height = `${SCREEN_HEIGHT * CANVAS_SCALE_Y}px`;
+            canvas.style.width = '100%'; canvas.style.height = '100%';
+            ctx.imageSmoothingEnabled = false;
+
+            // Event listeners
+            canvasContainer.addEventListener('mousedown', handleMouseDown);
+            // canvasContainer.addEventListener('mousemove', handleMouseMove); // Drag handled in mousedown/move/up
+            canvasContainer.addEventListener('mouseup', handleMouseUp);
+            // canvasContainer.addEventListener('mouseleave', handleMouseLeave); // Leave handled separately
+            canvasContainer.addEventListener('touchstart', handleMouseDown, { passive: false });
+            canvasContainer.addEventListener('touchmove', handleMouseMove, { passive: false });
+            canvasContainer.addEventListener('touchend', handleMouseUp, { passive: false });
+            canvasContainer.addEventListener('touchcancel', handleMouseUp, { passive: false });
+
+            // Initial draw and generate placeholder code
+            redrawCanvas();
+            generateMicroPythonCode();
+            pauseAnimationLoop(); // Ensure animation starts paused
+        }
+
+        // --- Run Initialization ---
+        initialize();
+
+    </script>
+
+</body>
+</html>
